@@ -8,7 +8,7 @@ import json
 import subprocess
 import openpyxl
 
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "1.0.1"
 GITHUB_REPO = "khoathoiloi/shorten-link-automation"
 
 # Đảm bảo hiển thị Tiếng Việt trên Windows console
@@ -113,6 +113,52 @@ def check_for_updates():
     except Exception:
         pass
 
+def wait_for_user_login(page):
+    """Kiểm tra và chờ người dùng đăng nhập (không giới hạn thời gian)"""
+    time.sleep(1.5)
+    
+    # Kiểm tra ngay
+    user_profile = page.locator("#user-profile")
+    user_display_name = page.locator("#user-display-name")
+    profile_classes = user_profile.get_attribute("class") or ""
+    
+    if user_profile.is_visible() and "hidden" not in profile_classes:
+        username = user_display_name.inner_text().strip() or "User"
+        print(f"👤 Tài khoản đã đăng nhập sẵn: {username}")
+        return True
+
+    print("\n" + "-" * 65)
+    print("⚠️ CHƯA ĐĂNG NHẬP!")
+    print("👉 Xin mời bạn đăng ký / đăng nhập trực tiếp trên cửa sổ Chrome vừa mở...")
+    print("⏳ Hệ thống đang chờ bạn đăng nhập (Không giới hạn thời gian)...")
+    print("-" * 65)
+
+    waited_seconds = 0
+    while True:
+        time.sleep(1)
+        waited_seconds += 1
+        
+        try:
+            # Kiểm tra xem người dùng có vô tình tắt trình duyệt không
+            if page.is_closed():
+                print("\n❌ Bạn đã đóng trình duyệt Chrome. Dừng chương trình.")
+                return False
+                
+            p_classes = user_profile.get_attribute("class") or ""
+            if user_profile.is_visible() and "hidden" not in p_classes:
+                username = user_display_name.inner_text().strip() or "User"
+                print(f"\n🎉 ĐĂNG NHẬP THÀNH CÔNG! Chào mừng {username}.")
+                return True
+        except Exception:
+            pass
+
+        # Hiển thị số giây đã đợi
+        if waited_seconds % 2 == 0:
+            mins, secs = divmod(waited_seconds, 60)
+            time_str = f"{mins:02d}:{secs:02d}" if mins > 0 else f"{secs}s"
+            sys.stdout.write(f"\r⏳ Đang đợi bạn đăng nhập trên Chrome... ({time_str})")
+            sys.stdout.flush()
+
 def extract_links_and_col(excel_path):
     wb = openpyxl.load_workbook(excel_path)
     sheet = wb['BaiDang'] if 'BaiDang' in wb.sheetnames else wb.active
@@ -133,7 +179,7 @@ def extract_links_and_col(excel_path):
         return None, None, None, []
 
     col_name = sheet.cell(1, best_col).value or f"Cột {best_col}"
-    print(f"🔍 [TỰ ĐỘNG NHẬN DIỆN]: Cột chứa link gốc là Cột {best_col} [{col_name}]", flush=True)
+    print(f"\n🔍 [TỰ ĐỘNG NHẬN DIỆN]: Cột chứa link gốc là Cột {best_col} [{col_name}]", flush=True)
 
     links = []
     for r in range(2, sheet.max_row + 1):
@@ -204,19 +250,11 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(TARGET_URL, wait_until="domcontentloaded")
-        time.sleep(1.5)
 
-        user_profile = page.locator("#user-profile")
-        profile_classes = user_profile.get_attribute("class") or ""
-        if not (user_profile.is_visible() and "hidden" not in profile_classes):
-            print("\n⚠️ CHƯA ĐĂNG NHẬP! Vui lòng đăng nhập trên cửa sổ Chrome...", flush=True)
-            try:
-                page.wait_for_selector("#user-profile:not(.hidden)", timeout=300000)
-                print("✅ Đăng nhập thành công!", flush=True)
-            except Exception:
-                print("❌ Hết thời gian chờ đăng nhập (5 phút).", flush=True)
-                context.close()
-                return False
+        # Kiểm tra và chờ đăng nhập linh hoạt (không giới hạn thời gian)
+        if not wait_for_user_login(page):
+            context.close()
+            return False
 
         for i, (row_idx, original_url, full_cell_text) in enumerate(items, start=1):
             if original_url in url_cache:
