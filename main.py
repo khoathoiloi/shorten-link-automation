@@ -3,7 +3,13 @@ import sys
 import re
 import time
 import random
+import urllib.request
+import json
+import subprocess
 import openpyxl
+
+CURRENT_VERSION = "1.0.0"
+GITHUB_REPO = "khoathoiloi/shorten-link-automation"
 
 # Đảm bảo hiển thị Tiếng Việt trên Windows console
 if sys.platform == "win32":
@@ -17,13 +23,95 @@ from playwright.sync_api import sync_playwright
 
 TARGET_URL = "https://shorten-link-swart.vercel.app/"
 
-# Lấy thư mục chạy để lưu user_data cạnh file exe
 if getattr(sys, 'frozen', False):
     APP_DIR = os.path.dirname(sys.executable)
+    CURRENT_EXE = sys.executable
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
+    CURRENT_EXE = None
 
 USER_DATA_DIR = os.path.join(APP_DIR, "user_data")
+
+def is_newer_version(latest, current):
+    try:
+        l_parts = [int(p) for p in latest.split('.')]
+        c_parts = [int(p) for p in current.split('.')]
+        return l_parts > c_parts
+    except Exception:
+        return latest != current
+
+def perform_update(download_url, new_version):
+    """Tải file exe mới và tự động thay thế file cũ"""
+    if not CURRENT_EXE:
+        print(f"⚠️ Bạn đang chạy mã nguồn Python. Vui lòng tải file exe tại: {download_url}")
+        return
+
+    print(f"\n⏳ Đang tải bản cập nhật v{new_version}...")
+    new_exe_path = CURRENT_EXE + ".new"
+    
+    def reporthook(blocknum, blocksize, totalsize):
+        read = blocknum * blocksize
+        if totalsize > 0:
+            percent = min(100, int(read * 100 / totalsize))
+            mb_read = read / (1024 * 1024)
+            mb_total = totalsize / (1024 * 1024)
+            sys.stdout.write(f"\r📥 Đang tải: {percent}% ({mb_read:.1f}MB / {mb_total:.1f}MB)")
+            sys.stdout.flush()
+
+    try:
+        urllib.request.urlretrieve(download_url, new_exe_path, reporthook)
+        print("\n✅ Tải về hoàn tất! Đang khởi động lại ứng dụng...")
+        
+        bat_script = f"""@echo off
+timeout /t 2 /nobreak > nul
+move /y "{new_exe_path}" "{CURRENT_EXE}"
+start "" "{CURRENT_EXE}"
+del "%~f0"
+"""
+        updater_bat = os.path.join(APP_DIR, "updater.bat")
+        with open(updater_bat, "w", encoding="utf-8") as f:
+            f.write(bat_script)
+            
+        subprocess.Popen(["cmd.exe", "/c", updater_bat], close_fds=True)
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n❌ Lỗi khi tự động cập nhật: {e}")
+        print(f"👉 Bạn có thể tải thủ công tại: {download_url}")
+        if os.path.exists(new_exe_path):
+            try: os.remove(new_exe_path)
+            except: pass
+
+def check_for_updates():
+    """Tự động kiểm tra bản cập nhật mới nhất từ GitHub Releases"""
+    try:
+        print("🔍 Đang kiểm tra bản cập nhật mới...", flush=True)
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "ShiftLink-App"})
+        with urllib.request.urlopen(req, timeout=4) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode())
+                latest_tag = data.get("tag_name", "").lstrip("v")
+                body = data.get("body", "Không có ghi chú cập nhật.")
+                
+                download_url = None
+                for asset in data.get("assets", []):
+                    if asset.get("name", "").endswith(".exe"):
+                        download_url = asset.get("browser_download_url")
+                        break
+
+                if latest_tag and is_newer_version(latest_tag, CURRENT_VERSION) and download_url:
+                    print("\n" + "=" * 65)
+                    print(f"🎉 ĐÃ CÓ PHIÊN BẢN MỚI: v{latest_tag} (Phiên bản hiện tại: v{CURRENT_VERSION})")
+                    print(f"📝 Nội dung mới:\n{body}")
+                    print("=" * 65)
+                    
+                    choice = input("👉 Bạn có muốn tự động cập nhật ngay bây giờ không? (y/n, mặc định y): ").strip().lower()
+                    if choice in ['', 'y', 'yes']:
+                        perform_update(download_url, latest_tag)
+                else:
+                    print(f"✅ Bạn đang sử dụng phiên bản mới nhất (v{CURRENT_VERSION}).\n", flush=True)
+    except Exception:
+        pass
 
 def extract_links_and_col(excel_path):
     wb = openpyxl.load_workbook(excel_path)
@@ -45,7 +133,7 @@ def extract_links_and_col(excel_path):
         return None, None, None, []
 
     col_name = sheet.cell(1, best_col).value or f"Cột {best_col}"
-    print(f"\n🔍 [TỰ ĐỘNG NHẬN DIỆN]: Cột chứa link gốc là Cột {best_col} [{col_name}]", flush=True)
+    print(f"🔍 [TỰ ĐỘNG NHẬN DIỆN]: Cột chứa link gốc là Cột {best_col} [{col_name}]", flush=True)
 
     links = []
     for r in range(2, sheet.max_row + 1):
@@ -90,7 +178,6 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
         print("❌ Lỗi: Không tìm thấy đường link nào trong file Excel!", flush=True)
         return False
 
-    # Tìm hoặc tạo cột "Link da rut gon"
     out_col = None
     for c in range(1, sheet.max_column + 1):
         if str(sheet.cell(1, c).value or '').strip().lower() == "link da rut gon":
@@ -119,7 +206,6 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
         page.goto(TARGET_URL, wait_until="domcontentloaded")
         time.sleep(1.5)
 
-        # Kiểm tra đăng nhập
         user_profile = page.locator("#user-profile")
         profile_classes = user_profile.get_attribute("class") or ""
         if not (user_profile.is_visible() and "hidden" not in profile_classes):
@@ -175,7 +261,6 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
 
         context.close()
 
-    # Lưu ra file mới
     dir_name = os.path.dirname(excel_path)
     base_name = os.path.splitext(os.path.basename(excel_path))[0]
     out_file = os.path.join(dir_name, f"{base_name}_rutgon.xlsx")
@@ -188,10 +273,12 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
 
 def main():
     print("*" * 65)
-    print("       CÔNG CỤ TỰ ĐỘNG HÓA RÚT GỌN LINK SHIFTLINK       ")
+    print(f"   CÔNG CỤ TỰ ĐỘNG HÓA RÚT GỌN LINK SHIFTLINK (v{CURRENT_VERSION})   ")
     print("*" * 65)
     
-    excel_path = input("\n👉 Kéo thả file Excel vào đây (hoặc dán đường dẫn): ").strip('\'"')
+    check_for_updates()
+
+    excel_path = input("👉 Kéo thả file Excel vào đây (hoặc dán đường dẫn): ").strip('\'"')
     if not excel_path:
         default_file = r"C:\Users\TP\Desktop\blogbio-20260826-170943.xlsx"
         if os.path.exists(default_file):
