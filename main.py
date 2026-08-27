@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
-import os
+﻿import os
 import sys
 import re
 import time
 import random
 import urllib.request
+import ssl
 import json
 import subprocess
 import openpyxl
 
-CURRENT_VERSION = "1.0.5"
+CURRENT_VERSION = "1.0.6"
 GITHUB_REPO = "khoathoiloi/shorten-link-automation"
 
 # Đảm bảo hiển thị Tiếng Việt trên Windows console
@@ -32,6 +32,11 @@ else:
     CURRENT_EXE = None
 
 USER_DATA_DIR = os.path.join(APP_DIR, "user_data")
+
+# Tạo SSL context an toàn tương thích mọi môi trường mạng/Windows
+ssl_ctx = ssl.create_default_context()
+ssl_ctx.check_hostname = False
+ssl_ctx.verify_mode = ssl.CERT_NONE
 
 def is_newer_version(latest, current):
     try:
@@ -60,7 +65,19 @@ def perform_update(download_url, new_version):
             sys.stdout.flush()
 
     try:
-        urllib.request.urlretrieve(download_url, new_exe_path, reporthook)
+        req = urllib.request.Request(download_url, headers={"User-Agent": "ShiftLink-App"})
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as response, open(new_exe_path, 'wb') as out_file:
+            totalsize = int(response.headers.get('content-length', 0))
+            blocksize = 65536
+            blocknum = 0
+            while True:
+                data = response.read(blocksize)
+                if not data:
+                    break
+                out_file.write(data)
+                blocknum += 1
+                reporthook(blocknum, blocksize, totalsize)
+
         print("\n✅ Tải về hoàn tất! Đang khởi động lại ứng dụng...")
         
         bat_script = f"""@echo off
@@ -83,14 +100,14 @@ del "%~f0"
             except: pass
 
 def check_for_updates():
-    """Tự động kiểm tra bản cập nhật mới nhất từ GitHub Releases"""
+    """Tự động kiểm tra bản cập nhật mới nhất từ GitHub Releases (bỏ qua lỗi SSL mạng)"""
     try:
         print("🔍 Đang kiểm tra bản cập nhật mới...", flush=True)
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(url, headers={"User-Agent": "ShiftLink-App"})
-        with urllib.request.urlopen(req, timeout=4) as response:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as response:
             if response.status == 200:
-                data = json.loads(response.read().decode())
+                data = json.loads(response.read().decode('utf-8'))
                 latest_tag = data.get("tag_name", "").lstrip("v")
                 body = data.get("body", "Không có ghi chú cập nhật.")
                 
@@ -111,8 +128,8 @@ def check_for_updates():
                         perform_update(download_url, latest_tag)
                 else:
                     print(f"✅ Bạn đang sử dụng phiên bản mới nhất (v{CURRENT_VERSION}).\n", flush=True)
-    except Exception:
-        pass
+    except Exception as err:
+        print(f"ℹ️ (Không thể kiểm tra cập nhật qua mạng: {err})\n", flush=True)
 
 def wait_for_user_login(page):
     """Kiểm tra và chờ người dùng đăng nhập (không giới hạn thời gian)"""
@@ -270,28 +287,23 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
             for row_idx, original_url, full_cell_text in items:
                 processed_count += 1
                 
-                # TRƯỜNG HỢP 1: LINK GỐC ĐÃ TỪNG RÚT GỌN TRƯỚC ĐÓ (DÙNG LẠI CACHE)
                 if original_url in url_cache:
                     cached_val = url_cache[original_url]
                     sheet.cell(row=row_idx, column=out_col, value=cached_val)
                     print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚡ [DÙNG LẠI] {cached_val}", flush=True)
                     continue
 
-                # TRƯỜNG HỢP 2: RÚT GỌN MỚI TRÊN WEB VÀ THEO DÕI THỜI GIAN CHỜ BÁO THÀNH CÔNG
                 success = False
                 for attempt in range(5):
                     slug = generate_short_slug(original_url, attempt=attempt)
                     
-                    # 1. Điền Form trên giao diện
                     page.locator("#original-url").fill(original_url)
                     page.locator("#domain-select").select_option(label=selected_domain)
                     page.locator("#short-path").fill(slug)
 
-                    # Dừng nhẹ 0.4s để mắt nhìn thấy dữ liệu vừa điền
                     time.sleep(0.4)
 
                     try:
-                        # 2. Nhấn nút "Rút Gọn Link"
                         submit_btn = page.locator("#shorten-form button[type='submit']")
                         
                         with page.expect_response(lambda res: "/api/links" in res.url and res.request.method == "POST", timeout=12000) as resp_info:
@@ -299,7 +311,6 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
 
                         response = resp_info.value
                         
-                        # 3. Chờ thông báo phản hồi (Toast notification trên giao diện web)
                         toast_msg = "Thành công"
                         try:
                             toast_elem = page.locator("#toast.show")
@@ -317,17 +328,14 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
                             url_cache[original_url] = final_text
                             sheet.cell(row=row_idx, column=out_col, value=final_text)
                             
-                            # 4. In thông báo thành công sau khi trang web đã phản hồi
                             print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> 📢 [{toast_msg}] ✅ {final_text}", flush=True)
                             success = True
-                            
-                            # 5. Dừng nghỉ tự nhiên 1.5s giữa các link để web kịp cập nhật bảng và người dùng dễ quan sát
                             time.sleep(1.5)
                             break
                         else:
                             print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚠️ Web báo: {toast_msg}, đang thử lại slug khác...", flush=True)
                             time.sleep(1.0)
-                    except Exception as e:
+                    except Exception:
                         time.sleep(1.0)
 
                 if not success:

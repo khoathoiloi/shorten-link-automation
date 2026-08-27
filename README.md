@@ -1,56 +1,29 @@
-﻿# 🔗 ShiftLink Automation Tool
+# 🚀 ShiftLink Automation (Tool Rút Gọn Link Hàng Loạt)
 
-[![Download EXE](https://img.shields.io/github/v/release/khoathoiloi/shorten-link-automation?label=Download%20EXE&logo=windows&color=blue)](https://github.com/khoathoiloi/shorten-link-automation/releases/latest)
-
-Hệ thống tự động hóa trích xuất link từ file Excel, tự động rút gọn link trên nền tảng **ShiftLink** (`https://shorten-link-swart.vercel.app/`) và xuất ra file Excel mới hoàn chỉnh.
+Công cụ tự động hóa rút gọn link trên website ShiftLink từ file Excel, tự động phân bổ domain, tạo slug ngẫu nhiên, tái sử dụng link trùng và xuất file Excel kết quả.
 
 ---
 
-## 📥 Tải Về Ứng Dụng (Không cần cài Python)
-👉 **[Tải file ShiftLink_Automation.exe tại đây](https://github.com/khoathoiloi/shorten-link-automation/releases/latest/download/ShiftLink_Automation.exe)**
+## 📥 Tải Về Phiên Bản Mới Nhất
+
+👉 **Tải trực tiếp bản mới nhất (Luôn tự động cập nhật):**
+
+- 🗜️ **[Tải file ZIP (Khuyên dùng - Không lo trình duyệt chặn)](https://github.com/khoathoiloi/shorten-link-automation/releases/latest/download/ShiftLink_Automation_v1.0.6.zip)**
+- 💾 **[Tải trực tiếp file EXE](https://github.com/khoathoiloi/shorten-link-automation/releases/latest/download/ShiftLink_Automation.exe)**
 
 ---
 
-## 🌟 Tính Năng Nổi Bật
+## 🌟 Các Tính Năng Nổi Bật
 
-1. **Smart Auto-Detection**: Tự động quét và phát hiện cột chứa link website trong file Excel mà không phụ thuộc vào thứ tự cột (không sợ người dùng đổi cấu trúc cột).
-2. **Quy tắc tạo Slug chuẩn SEO**:
-   - Lấy ngẫu nhiên từ 15 đến 21 ký tự ở cuối đường dẫn gốc.
-   - Bắt buộc bắt đầu bằng chữ cái hoặc số (loại bỏ dấu `-` ở đầu).
-   - Giữ nguyên các dấu `-` ở giữa chuỗi.
-3. **Bộ nhớ đệm thông minh (Deduplication Cache)**:
-   - Nếu trong file Excel có nhiều dòng chứa cùng một link gốc, hệ thống chỉ gọi rút gọn 1 lần duy nhất trên web và tự động điền link đã rút gọn cho toàn bộ các dòng còn lại (tiết kiệm thời gian, chống trùng slug).
-4. **Tự động lưu phiên đăng nhập**:
-   - Lưu trữ `user_data` (cookies, local storage), chỉ cần đăng nhập tài khoản 1 lần duy nhất, các lần chạy sau tự động nhận diện tài khoản.
-5. **Xuất file Excel chuyên nghiệp**:
-   - Giữ nguyên 100% định dạng, dữ liệu file gốc.
-   - Thêm cột mới `Link da rut gon` có tiền tố `watch full here 👉: https://nextpart2.online/...`.
-
----
-
-## 🚀 Hướng Dẫn Sử Dụng
-
-### Cách 1: Sử dụng file chạy trực tiếp (`ShiftLink_Automation.exe`)
-1. Tải file `ShiftLink_Automation.exe` từ mục **Releases**.
-2. Nhấp đúp mở file.
-3. Kéo thả file Excel của bạn vào cửa sổ console và nhấn `Enter`.
-4. Chương trình sẽ tự động mở Chrome và thực hiện toàn bộ quy trình cho đến khi hoàn tất.
-
-### Cách 2: Chạy bằng mã nguồn Python
-1. Cài đặt các thư viện:
-   ```bash
-   pip install -r requirements.txt
-   playwright install chromium
-   ```
-2. Chạy kịch bản:
-   ```bash
-   python main.py
-   ```
-
----
-
-## 🛠️ Công Nghệ Sử Dụng
-- **Python 3.12**
-- **Playwright** (Tự động hóa trình duyệt Web)
-- **OpenPyXL** (Xử lý bảng tính Excel)
-- **PyInstaller** (Đóng gói ứng dụng Desktop)
+1. **⚡ Tự Động Nhận Diện Cột Link & Chọn Sheet**:
+   - Tự động quét tìm cột chứa link website trong file Excel.
+   - Hỗ trợ chọn rút gọn riêng cho 1 sheet nhất định hoặc rút gọn cho **tất cả các sheet** trong file nhiều sheet.
+2. **🎲 Tạo Slug Chuẩn Quy Tắc**:
+   - Lấy ngẫu nhiên từ 15-21 ký tự từ đuôi URL gốc.
+   - Giữ nguyên dấu `-` ở giữa, đảm bảo ký tự đầu tiên luôn là chữ cái hoặc số.
+3. **🛡️ Bộ Nhớ Đệm Chống Trùng Link (Cache)**:
+   - Nếu trong file Excel có nhiều dòng chứa cùng 1 link gốc, tool chỉ rút gọn đúng 1 lần và tự động điền lại vào tất cả các dòng còn lại.
+4. **🔄 Tự Động Cập Nhật Trực Tiếp (In-App Auto Updater)**:
+   - Khi có phiên bản mới trên GitHub, ứng dụng sẽ tự động thông báo và người dùng chỉ cần nhấn Enter để tự động nâng cấp mà không cần tải lại thủ công.
+5. **🐶 Biểu Tượng Icon Độc Đáo**:
+   - Icon Chó Shiba Kéo Vàng 3D sắc nét và nổi bật.
