@@ -9,7 +9,7 @@ import json
 import subprocess
 import openpyxl
 
-CURRENT_VERSION = "1.0.2"
+CURRENT_VERSION = "1.0.3"
 GITHUB_REPO = "khoathoiloi/shorten-link-automation"
 
 # Đảm bảo hiển thị Tiếng Việt trên Windows console
@@ -124,7 +124,7 @@ def wait_for_user_login(page):
     
     if user_profile.is_visible() and "hidden" not in profile_classes:
         username = user_display_name.inner_text().strip() or "User"
-        print(f"👤 Tài khoản đã đăng nhập sẵn: {username}")
+        print(f"👤 Tài khoản đã đăng nhập: {username}")
         return True
 
     print("\n" + "-" * 65)
@@ -220,15 +220,13 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
     else:
         sheets_to_process = wb.sheetnames
 
-    # Quét toàn bộ link cần xử lý
-    tasks = [] # (sheet_name, link_col, out_col, [(row_idx, url, full_text)])
+    tasks = []
     total_links_all = 0
 
     for sname in sheets_to_process:
         sheet = wb[sname]
         col_idx, links = extract_links_from_sheet(sheet)
         if links:
-            # Tìm hoặc tạo cột "Link da rut gon"
             out_col = None
             for c in range(1, sheet.max_column + 1):
                 if str(sheet.cell(1, c).value or '').strip().lower() == "link da rut gon":
@@ -268,28 +266,48 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
 
         processed_count = 0
         for sname, sheet, col_idx, out_col, items in tasks:
-            print(f"\n--- ĐANG XỬ LÝ SHEET: '{sname}' ({len(items)} links) ---", flush=True)
+            print(f"\n--- 📂 ĐANG XỬ LÝ SHEET: '{sname}' ({len(items)} links) ---", flush=True)
             for row_idx, original_url, full_cell_text in items:
                 processed_count += 1
+                
+                # TRƯỜNG HỢP 1: LINK GỐC ĐÃ TỪNG RÚT GỌN TRƯỚC ĐÓ (DÙNG LẠI CACHE)
                 if original_url in url_cache:
                     cached_val = url_cache[original_url]
                     sheet.cell(row=row_idx, column=out_col, value=cached_val)
                     print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚡ [DÙNG LẠI] {cached_val}", flush=True)
                     continue
 
+                # TRƯỜNG HỢP 2: RÚT GỌN MỚI TRÊN WEB VÀ THEO DÕI THỜI GIAN CHỜ BÁO THÀNH CÔNG
                 success = False
                 for attempt in range(5):
                     slug = generate_short_slug(original_url, attempt=attempt)
                     
+                    # 1. Điền Form trên giao diện
                     page.locator("#original-url").fill(original_url)
                     page.locator("#domain-select").select_option(label=selected_domain)
                     page.locator("#short-path").fill(slug)
 
+                    # Dừng nhẹ 0.4s để mắt nhìn thấy dữ liệu vừa điền
+                    time.sleep(0.4)
+
                     try:
-                        with page.expect_response(lambda res: "/api/links" in res.url and res.request.method == "POST", timeout=10000) as resp_info:
-                            page.locator("#shorten-form button[type='submit']").click()
+                        # 2. Nhấn nút "Rút Gọn Link"
+                        submit_btn = page.locator("#shorten-form button[type='submit']")
+                        
+                        with page.expect_response(lambda res: "/api/links" in res.url and res.request.method == "POST", timeout=12000) as resp_info:
+                            submit_btn.click()
 
                         response = resp_info.value
+                        
+                        # 3. Chờ thông báo phản hồi (Toast notification trên giao diện web)
+                        toast_msg = "Thành công"
+                        try:
+                            toast_elem = page.locator("#toast.show")
+                            toast_elem.wait_for(state="visible", timeout=3000)
+                            toast_msg = toast_elem.inner_text().strip()
+                        except Exception:
+                            pass
+
                         if response.status in [200, 201]:
                             res_data = response.json()
                             created_path = res_data.get("shortPath", slug)
@@ -298,22 +316,25 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
                             
                             url_cache[original_url] = final_text
                             sheet.cell(row=row_idx, column=out_col, value=final_text)
-                            print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> 🌐 [RÚT GỌN] {final_text}", flush=True)
+                            
+                            # 4. In thông báo thành công sau khi trang web đã phản hồi
+                            print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> 📢 [{toast_msg}] ✅ {final_text}", flush=True)
                             success = True
+                            
+                            # 5. Dừng nghỉ tự nhiên 1.5s giữa các link để web kịp cập nhật bảng và người dùng dễ quan sát
+                            time.sleep(1.5)
                             break
                         else:
-                            time.sleep(0.5)
-                    except Exception:
-                        time.sleep(0.5)
+                            print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚠️ Web báo: {toast_msg}, đang thử lại slug khác...", flush=True)
+                            time.sleep(1.0)
+                    except Exception as e:
+                        time.sleep(1.0)
 
                 if not success:
-                    print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚠️ Thất bại sau 5 lần thử.", flush=True)
-
-                time.sleep(0.6)
+                    print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ❌ Thất bại sau 5 lần thử.", flush=True)
 
         context.close()
 
-    # Đặt Sheet đầu tiên được xử lý làm Active Sheet để mở file lên là thấy ngay
     if tasks:
         wb.active = tasks[0][1]
 
@@ -345,7 +366,6 @@ def main():
             input("\nNhấn Enter để thoát...")
             return
 
-    # Quét danh sách các sheet trong file
     try:
         wb = openpyxl.load_workbook(excel_path, read_only=True)
         sheet_names = wb.sheetnames
