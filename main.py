@@ -1,4 +1,5 @@
-﻿import os
+# -*- coding: utf-8 -*-
+import os
 import sys
 import re
 import time
@@ -8,7 +9,7 @@ import json
 import subprocess
 import openpyxl
 
-CURRENT_VERSION = "1.0.1"
+CURRENT_VERSION = "1.0.2"
 GITHUB_REPO = "khoathoiloi/shorten-link-automation"
 
 # Đảm bảo hiển thị Tiếng Việt trên Windows console
@@ -117,7 +118,6 @@ def wait_for_user_login(page):
     """Kiểm tra và chờ người dùng đăng nhập (không giới hạn thời gian)"""
     time.sleep(1.5)
     
-    # Kiểm tra ngay
     user_profile = page.locator("#user-profile")
     user_display_name = page.locator("#user-display-name")
     profile_classes = user_profile.get_attribute("class") or ""
@@ -139,7 +139,6 @@ def wait_for_user_login(page):
         waited_seconds += 1
         
         try:
-            # Kiểm tra xem người dùng có vô tình tắt trình duyệt không
             if page.is_closed():
                 print("\n❌ Bạn đã đóng trình duyệt Chrome. Dừng chương trình.")
                 return False
@@ -152,17 +151,14 @@ def wait_for_user_login(page):
         except Exception:
             pass
 
-        # Hiển thị số giây đã đợi
         if waited_seconds % 2 == 0:
             mins, secs = divmod(waited_seconds, 60)
             time_str = f"{mins:02d}:{secs:02d}" if mins > 0 else f"{secs}s"
             sys.stdout.write(f"\r⏳ Đang đợi bạn đăng nhập trên Chrome... ({time_str})")
             sys.stdout.flush()
 
-def extract_links_and_col(excel_path):
-    wb = openpyxl.load_workbook(excel_path)
-    sheet = wb['BaiDang'] if 'BaiDang' in wb.sheetnames else wb.active
-    
+def extract_links_from_sheet(sheet):
+    """Trích xuất danh sách link và xác định cột link trong 1 sheet"""
     best_col = None
     max_links = 0
     for col in range(1, sheet.max_column + 1):
@@ -176,10 +172,7 @@ def extract_links_and_col(excel_path):
             best_col = col
 
     if not best_col:
-        return None, None, None, []
-
-    col_name = sheet.cell(1, best_col).value or f"Cột {best_col}"
-    print(f"\n🔍 [TỰ ĐỘNG NHẬN DIỆN]: Cột chứa link gốc là Cột {best_col} [{col_name}]", flush=True)
+        return None, []
 
     links = []
     for r in range(2, sheet.max_row + 1):
@@ -188,7 +181,7 @@ def extract_links_and_col(excel_path):
         if match:
             links.append((r, match.group(0), cell_val))
             
-    return wb, sheet, best_col, links
+    return best_col, links
 
 def generate_short_slug(original_url, attempt=0):
     slug_part = re.sub(r'^https?://[^/]+(?:/[^/]+)*/', '', original_url.rstrip('/'))
@@ -213,29 +206,47 @@ def generate_short_slug(original_url, attempt=0):
         
     return result
 
-def run_automation(excel_path, selected_domain="nextpart2.online", max_items=None):
+def run_automation(excel_path, selected_domain="nextpart2.online", max_items=None, target_sheet_names=None):
     excel_path = excel_path.strip('\'"')
     if not os.path.exists(excel_path):
         print(f"❌ Lỗi: Không tìm thấy file Excel tại '{excel_path}'", flush=True)
         return False
 
-    wb, sheet, link_col, links = extract_links_and_col(excel_path)
-    if not links:
-        print("❌ Lỗi: Không tìm thấy đường link nào trong file Excel!", flush=True)
+    wb = openpyxl.load_workbook(excel_path)
+    
+    sheets_to_process = []
+    if target_sheet_names:
+        sheets_to_process = [s for s in target_sheet_names if s in wb.sheetnames]
+    else:
+        sheets_to_process = wb.sheetnames
+
+    # Quét toàn bộ link cần xử lý
+    tasks = [] # (sheet_name, link_col, out_col, [(row_idx, url, full_text)])
+    total_links_all = 0
+
+    for sname in sheets_to_process:
+        sheet = wb[sname]
+        col_idx, links = extract_links_from_sheet(sheet)
+        if links:
+            # Tìm hoặc tạo cột "Link da rut gon"
+            out_col = None
+            for c in range(1, sheet.max_column + 1):
+                if str(sheet.cell(1, c).value or '').strip().lower() == "link da rut gon":
+                    out_col = c
+                    break
+            if not out_col:
+                out_col = sheet.max_column + 1
+                sheet.cell(row=1, column=out_col, value="Link da rut gon")
+                
+            items = links[:max_items] if max_items else links
+            tasks.append((sname, sheet, col_idx, out_col, items))
+            total_links_all += len(items)
+
+    if not tasks:
+        print("❌ Không tìm thấy đường link nào trong các sheet đã chọn!", flush=True)
         return False
 
-    out_col = None
-    for c in range(1, sheet.max_column + 1):
-        if str(sheet.cell(1, c).value or '').strip().lower() == "link da rut gon":
-            out_col = c
-            break
-    if not out_col:
-        out_col = sheet.max_column + 1
-        sheet.cell(row=1, column=out_col, value="Link da rut gon")
-
-    items = links[:max_items] if max_items else links
-    total = len(items)
-    print(f"📊 Bắt đầu xử lý: {total} dòng dữ liệu...", flush=True)
+    print(f"\n📊 Bắt đầu xử lý: {len(tasks)} Sheet với tổng cộng {total_links_all} dòng dữ liệu...")
     print("=" * 65, flush=True)
 
     url_cache = {}
@@ -251,53 +262,60 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(TARGET_URL, wait_until="domcontentloaded")
 
-        # Kiểm tra và chờ đăng nhập linh hoạt (không giới hạn thời gian)
         if not wait_for_user_login(page):
             context.close()
             return False
 
-        for i, (row_idx, original_url, full_cell_text) in enumerate(items, start=1):
-            if original_url in url_cache:
-                cached_val = url_cache[original_url]
-                sheet.cell(row=row_idx, column=out_col, value=cached_val)
-                print(f"[{i:03d}/{total:03d}] Dòng #{row_idx:<3d} -> ⚡ [DÙNG LẠI] {cached_val}", flush=True)
-                continue
+        processed_count = 0
+        for sname, sheet, col_idx, out_col, items in tasks:
+            print(f"\n--- ĐANG XỬ LÝ SHEET: '{sname}' ({len(items)} links) ---", flush=True)
+            for row_idx, original_url, full_cell_text in items:
+                processed_count += 1
+                if original_url in url_cache:
+                    cached_val = url_cache[original_url]
+                    sheet.cell(row=row_idx, column=out_col, value=cached_val)
+                    print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚡ [DÙNG LẠI] {cached_val}", flush=True)
+                    continue
 
-            success = False
-            for attempt in range(5):
-                slug = generate_short_slug(original_url, attempt=attempt)
-                
-                page.locator("#original-url").fill(original_url)
-                page.locator("#domain-select").select_option(label=selected_domain)
-                page.locator("#short-path").fill(slug)
+                success = False
+                for attempt in range(5):
+                    slug = generate_short_slug(original_url, attempt=attempt)
+                    
+                    page.locator("#original-url").fill(original_url)
+                    page.locator("#domain-select").select_option(label=selected_domain)
+                    page.locator("#short-path").fill(slug)
 
-                try:
-                    with page.expect_response(lambda res: "/api/links" in res.url and res.request.method == "POST", timeout=10000) as resp_info:
-                        page.locator("#shorten-form button[type='submit']").click()
+                    try:
+                        with page.expect_response(lambda res: "/api/links" in res.url and res.request.method == "POST", timeout=10000) as resp_info:
+                            page.locator("#shorten-form button[type='submit']").click()
 
-                    response = resp_info.value
-                    if response.status in [200, 201]:
-                        res_data = response.json()
-                        created_path = res_data.get("shortPath", slug)
-                        shortened_url = f"https://{selected_domain}/{created_path}"
-                        final_text = f"watch full here 👉: {shortened_url}"
-                        
-                        url_cache[original_url] = final_text
-                        sheet.cell(row=row_idx, column=out_col, value=final_text)
-                        print(f"[{i:03d}/{total:03d}] Dòng #{row_idx:<3d} -> 🌐 [RÚT GỌN] {final_text}", flush=True)
-                        success = True
-                        break
-                    else:
+                        response = resp_info.value
+                        if response.status in [200, 201]:
+                            res_data = response.json()
+                            created_path = res_data.get("shortPath", slug)
+                            shortened_url = f"https://{selected_domain}/{created_path}"
+                            final_text = f"watch full here 👉: {shortened_url}"
+                            
+                            url_cache[original_url] = final_text
+                            sheet.cell(row=row_idx, column=out_col, value=final_text)
+                            print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> 🌐 [RÚT GỌN] {final_text}", flush=True)
+                            success = True
+                            break
+                        else:
+                            time.sleep(0.5)
+                    except Exception:
                         time.sleep(0.5)
-                except Exception:
-                    time.sleep(0.5)
 
-            if not success:
-                print(f"[{i:03d}/{total:03d}] Dòng #{row_idx:<3d} -> ⚠️ Thất bại sau 5 lần thử.", flush=True)
+                if not success:
+                    print(f"[{processed_count:03d}/{total_links_all:03d}] [{sname}] Dòng #{row_idx:<3d} -> ⚠️ Thất bại sau 5 lần thử.", flush=True)
 
-            time.sleep(0.6)
+                time.sleep(0.6)
 
         context.close()
+
+    # Đặt Sheet đầu tiên được xử lý làm Active Sheet để mở file lên là thấy ngay
+    if tasks:
+        wb.active = tasks[0][1]
 
     dir_name = os.path.dirname(excel_path)
     base_name = os.path.splitext(os.path.basename(excel_path))[0]
@@ -305,7 +323,7 @@ def run_automation(excel_path, selected_domain="nextpart2.online", max_items=Non
     wb.save(out_file)
 
     print("=" * 65, flush=True)
-    print("🎉 HOÀN TẤT TẤT CẢ DÒNG DỮ LIỆU!", flush=True)
+    print("🎉 HOÀN TẤT TẤT CẢ CÁC SHEET!", flush=True)
     print(f"💾 File kết quả đã lưu tại: {out_file}", flush=True)
     return True
 
@@ -318,7 +336,7 @@ def main():
 
     excel_path = input("👉 Kéo thả file Excel vào đây (hoặc dán đường dẫn): ").strip('\'"')
     if not excel_path:
-        default_file = r"C:\Users\TP\Desktop\blogbio-20260826-170943.xlsx"
+        default_file = r"C:\Users\TP\Downloads\đợt 2.xlsx"
         if os.path.exists(default_file):
             print(f"Sử dụng file mặc định: {default_file}")
             excel_path = default_file
@@ -327,14 +345,46 @@ def main():
             input("\nNhấn Enter để thoát...")
             return
 
-    domain = input("👉 Chọn tên miền (Nhấn Enter để dùng mặc định: nextpart2.online): ").strip()
+    # Quét danh sách các sheet trong file
+    try:
+        wb = openpyxl.load_workbook(excel_path, read_only=True)
+        sheet_names = wb.sheetnames
+        wb.close()
+    except Exception as e:
+        print(f"❌ Lỗi khi đọc file Excel: {e}")
+        input("\nNhấn Enter để thoát...")
+        return
+
+    target_sheets = None
+    if len(sheet_names) > 1:
+        print("\n" + "=" * 65)
+        print(f"📄 File Excel này có {len(sheet_names)} Sheet:")
+        print("   [0] 🌟 RÚT GỌN TẤT CẢ CÁC SHEET")
+        for idx, sname in enumerate(sheet_names, start=1):
+            print(f"   [{idx}] Sheet '{sname}'")
+        print("=" * 65)
+        
+        sheet_choice = input(f"👉 Chọn Sheet muốn rút gọn (Nhập 0 để rút gọn tất cả, hoặc 1, 2,... {len(sheet_names)}; mặc định 0): ").strip()
+        if sheet_choice.isdigit():
+            s_idx = int(sheet_choice)
+            if 1 <= s_idx <= len(sheet_names):
+                target_sheets = [sheet_names[s_idx - 1]]
+                print(f"✅ Đã chọn rút gọn riêng Sheet: '{target_sheets[0]}'")
+            else:
+                print("✅ Đã chọn rút gọn TẤT CẢ các Sheet.")
+        else:
+            print("✅ Đã chọn rút gọn TẤT CẢ các Sheet.")
+    else:
+        print(f"📄 File có 1 Sheet: '{sheet_names[0]}'")
+
+    domain = input("\n👉 Chọn tên miền (Nhấn Enter để dùng mặc định: nextpart2.online): ").strip()
     if not domain:
         domain = "nextpart2.online"
 
-    limit_str = input("👉 Số lượng dòng muốn xử lý (Nhấn Enter để xử lý TOÀN BỘ file): ").strip()
+    limit_str = input("👉 Số lượng dòng muốn xử lý (Nhấn Enter để xử lý TOÀN BỘ): ").strip()
     limit = int(limit_str) if limit_str.isdigit() else None
 
-    run_automation(excel_path, selected_domain=domain, max_items=limit)
+    run_automation(excel_path, selected_domain=domain, max_items=limit, target_sheet_names=target_sheets)
 
     print("\n" + "=" * 65)
     input("👉 Nhấn phím Enter để kết thúc...")
