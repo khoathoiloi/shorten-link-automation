@@ -1,6 +1,13 @@
 ﻿# 🔗 ShiftLink Automation Tool
 
+[![Download EXE](https://img.shields.io/github/v/release/khoathoiloi/shorten-link-automation?label=Download%20EXE&logo=windows&color=blue)](https://github.com/khoathoiloi/shorten-link-automation/releases/latest)
+
 Hệ thống tự động hóa trích xuất link từ file Excel, tự động rút gọn link trên nền tảng **ShiftLink** (`https://shorten-link-swart.vercel.app/`) và xuất ra file Excel mới hoàn chỉnh.
+
+---
+
+## 📥 Tải Về Ứng Dụng (Không cần cài Python)
+👉 **[Tải file ShiftLink_Automation.exe tại đây](https://github.com/khoathoiloi/shorten-link-automation/releases/latest/download/ShiftLink_Automation.exe)**
 
 ---
 
@@ -24,9 +31,10 @@ Hệ thống tự động hóa trích xuất link từ file Excel, tự động 
 ## 🚀 Hướng Dẫn Sử Dụng
 
 ### Cách 1: Sử dụng file chạy trực tiếp (`ShiftLink_Automation.exe`)
-1. Nhấp đúp mở file `ShiftLink_Automation.exe` (đã tạo sẵn trên Desktop).
-2. Kéo thả file Excel của bạn vào cửa sổ và nhấn `Enter`.
-3. Chương trình sẽ tự động mở Chrome và thực hiện toàn bộ quy trình cho đến khi hoàn tất.
+1. Tải file `ShiftLink_Automation.exe` từ mục **Releases**.
+2. Nhấp đúp mở file.
+3. Kéo thả file Excel của bạn vào cửa sổ console và nhấn `Enter`.
+4. Chương trình sẽ tự động mở Chrome và thực hiện toàn bộ quy trình cho đến khi hoàn tất.
 
 ### Cách 2: Chạy bằng mã nguồn Python
 1. Cài đặt các thư viện:
