@@ -9,7 +9,7 @@ import json
 import subprocess
 import openpyxl
 
-CURRENT_VERSION = "1.0.3"
+CURRENT_VERSION = "1.0.4"
 GITHUB_REPO = "khoathoiloi/shorten-link-automation"
 
 # Đảm bảo hiển thị Tiếng Việt trên Windows console
