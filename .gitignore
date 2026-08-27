@@ -1,0 +1,20 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+build/
+dist/
+user_data/
+*.log
+
+# Excel temporary output files
+*.xlsx
+!templates/*.xlsx
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
